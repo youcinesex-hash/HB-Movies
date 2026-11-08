@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -68,7 +67,7 @@ class ResolverService {
           return Uri.parse(url).resolve(source.attributes['src']!).toString();
         }
 
-        final regex = RegExp(r'https?:\\/\\/[^\\s"\\']+\\.(m3u8|mp4)[^\\s"\\']*');
+        final regex = RegExp(r"https?:\/\/[^\s\"']+\.(m3u8|mp4)[^\s\"']*");
         final match = regex.firstMatch(response.body);
         if (match != null) return match.group(0);
       }
