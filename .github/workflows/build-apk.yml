@@ -5,6 +5,9 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -24,6 +27,11 @@ jobs:
         with:
           channel: stable
 
+      - name: Generate Android project files
+        run: |
+          flutter create --platforms=android --project-name hb_movie /tmp/hb_movie_template
+          cp -R /tmp/hb_movie_template/android ./android
+
       - name: Get dependencies
         run: flutter pub get
 
@@ -35,3 +43,5 @@ jobs:
         with:
           name: hb-movie-release-apk
           path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 7
