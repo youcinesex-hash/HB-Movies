@@ -1,13 +1,14 @@
 import 'dart:convert';
 
-import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:http/http.dart' as http;
-import 'package:html/parser.dart' as html_parser;
-import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
+import 'package:flutter/material.dart';
+import 'package:html/parser.dart' as html_parser;
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:video_player/video_player.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const HBMovieApp());
 }
 
@@ -41,21 +42,29 @@ class ChannelItem {
 
   Map<String, dynamic> toJson() => {'name': name, 'url': url};
 
-  factory ChannelItem.fromJson(Map<String, dynamic> json) =>
-      ChannelItem(name: json['name'], url: json['url']);
+  factory ChannelItem.fromJson(Map<String, dynamic> json) {
+    return ChannelItem(
+      name: json['name'] as String,
+      url: json['url'] as String,
+    );
+  }
 }
 
 class ResolverService {
   static Future<String?> extractVideoStream(String url) async {
     final lower = url.toLowerCase();
-    if (lower.endsWith('.m3u8') || lower.endsWith('.mp4')) return url;
+    if (lower.endsWith('.m3u8') || lower.endsWith('.mp4')) {
+      return url;
+    }
 
     try {
       final response = await http.get(
         Uri.parse(url),
         headers: {
           'User-Agent':
-              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                  'AppleWebKit/537.36 (KHTML, like Gecko) '
+                  'Chrome/120.0.0.0 Safari/537.36',
         },
       ).timeout(const Duration(seconds: 10));
 
@@ -63,15 +72,30 @@ class ResolverService {
         final document = html_parser.parse(response.body);
 
         final source = document.querySelector('video source');
-        if (source != null && source.attributes.containsKey('src')) {
-          return Uri.parse(url).resolve(source.attributes['src']!).toString();
+        final sourceUrl = source?.attributes['src'];
+        if (sourceUrl != null && sourceUrl.isNotEmpty) {
+          return Uri.parse(url).resolve(sourceUrl).toString();
         }
 
-        final regex = RegExp(r"https?:\/\/[^\s\"']+\.(m3u8|mp4)[^\s\"']*");
+        final video = document.querySelector('video');
+        final videoUrl = video?.attributes['src'];
+        if (videoUrl != null && videoUrl.isNotEmpty) {
+          return Uri.parse(url).resolve(videoUrl).toString();
+        }
+
+        final regex = RegExp(
+          r'''https?://[^\s"'<>]+\.(?:m3u8|mp4)(?:\?[^\s"'<>]*)?''',
+          caseSensitive: false,
+        );
         final match = regex.firstMatch(response.body);
-        if (match != null) return match.group(0);
+        if (match != null) {
+          return match.group(0);
+        }
       }
-    } catch (_) {}
+    } catch (_) {
+      // Retorna null se não conseguir resolver a página.
+    }
+
     return null;
   }
 }
@@ -105,17 +129,21 @@ class _HomeScreenState extends State<HomeScreen> {
       _channels = data == null
           ? [
               ChannelItem(
-                name: 'Big Buck Bunny',
+                name: 'Big Buck Bunny (HLS)',
                 url: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
               ),
               ChannelItem(
-                name: 'Tears of Steel',
-                url:
-                    'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4',
+                name: 'Tears of Steel (MP4)',
+                url: 'https://commondatastorage.googleapis.com/'
+                    'gtv-videos-bucket/sample/TearsOfSteel.mp4',
               ),
             ]
           : data
-              .map((item) => ChannelItem.fromJson(jsonDecode(item) as Map<String, dynamic>))
+              .map(
+                (item) => ChannelItem.fromJson(
+                  jsonDecode(item) as Map<String, dynamic>,
+                ),
+              )
               .toList();
     });
   }
@@ -131,72 +159,81 @@ class _HomeScreenState extends State<HomeScreen> {
   void _addChannelDialog() {
     showDialog<void>(
       context: context,
-      builder: (ctx) {
-        return AlertDialog(
-          backgroundColor: const Color(0xFF141724),
-          title: const Text('Adicionar canal'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: _nameCtrl,
-                decoration: const InputDecoration(labelText: 'Nome'),
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF141724),
+        title: const Text('Adicionar canal'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _nameCtrl,
+              decoration: const InputDecoration(labelText: 'Nome'),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _urlCtrl,
+              keyboardType: TextInputType.url,
+              decoration: const InputDecoration(
+                labelText: 'URL (.m3u8, .mp4 ou página)',
               ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: _urlCtrl,
-                keyboardType: TextInputType.url,
-                decoration:
-                    const InputDecoration(labelText: 'URL (.m3u8 ou site)'),
-              ),
-            ],
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar'),
           ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFE50914)),
-              onPressed: () {
-                final url = _urlCtrl.text.trim();
-                if (url.isEmpty) return;
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFE50914),
+            ),
+            onPressed: () {
+              final url = _urlCtrl.text.trim();
+              if (url.isEmpty) return;
 
-                setState(() {
-                  _channels.add(ChannelItem(
+              setState(() {
+                _channels.add(
+                  ChannelItem(
                     name: _nameCtrl.text.trim().isEmpty
                         ? 'Fonte ${_channels.length + 1}'
                         : _nameCtrl.text.trim(),
                     url: url,
-                  ));
-                });
+                  ),
+                );
+              });
 
-                _saveChannels();
-                _nameCtrl.clear();
-                _urlCtrl.clear();
-                Navigator.pop(ctx);
-              },
-              child: const Text('Salvar', style: TextStyle(color: Colors.white)),
+              _saveChannels();
+              _nameCtrl.clear();
+              _urlCtrl.clear();
+              Navigator.pop(ctx);
+            },
+            child: const Text(
+              'Salvar',
+              style: TextStyle(color: Colors.white),
             ),
-          ],
-        );
-      },
+          ),
+        ],
+      ),
     );
   }
 
   Future<void> _openPlayer(ChannelItem channel) async {
-    _isLoading = true;
-    setState(() {});
+    setState(() => _isLoading = true);
 
     final stream = await ResolverService.extractVideoStream(channel.url);
 
-    _isLoading = false;
-    setState(() {});
-
     if (!mounted) return;
+    setState(() => _isLoading = false);
 
     if (stream != null) {
-      Navigator.push(
+      await Navigator.push<void>(
         context,
         MaterialPageRoute(
-          builder: (_) => PlayerScreen(title: channel.name, videoUrl: stream),
+          builder: (_) => PlayerScreen(
+            title: channel.name,
+            videoUrl: stream,
+          ),
         ),
       );
     } else {
@@ -222,32 +259,54 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: const Text(
           'HB MOVIE',
-          style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFE50914)),
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: Color(0xFFE50914),
+          ),
         ),
         backgroundColor: const Color(0xFF0F111A),
         actions: [
-          IconButton(icon: const Icon(Icons.add_link), onPressed: _addChannelDialog),
+          IconButton(
+            icon: const Icon(Icons.add_link),
+            onPressed: _addChannelDialog,
+          ),
         ],
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: Color(0xFFE50914)))
+          ? const Center(
+              child: CircularProgressIndicator(
+                color: Color(0xFFE50914),
+              ),
+            )
           : ListView.builder(
               padding: const EdgeInsets.all(16),
               itemCount: _channels.length,
               itemBuilder: (context, index) {
                 final item = _channels[index];
+
                 return Card(
                   color: const Color(0xFF141724),
                   margin: const EdgeInsets.only(bottom: 12),
                   child: ListTile(
-                    leading: const Icon(Icons.play_circle_fill,
-                        color: Color(0xFFE50914), size: 36),
-                    title: Text(item.name,
-                        style: const TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: Text(item.url,
-                        maxLines: 1, overflow: TextOverflow.ellipsis),
+                    leading: const Icon(
+                      Icons.play_circle_fill,
+                      color: Color(0xFFE50914),
+                      size: 36,
+                    ),
+                    title: Text(
+                      item.name,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    subtitle: Text(
+                      item.url,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                     trailing: IconButton(
-                      icon: const Icon(Icons.delete_outline, color: Colors.grey),
+                      icon: const Icon(
+                        Icons.delete_outline,
+                        color: Colors.grey,
+                      ),
                       onPressed: () {
                         setState(() => _channels.removeAt(index));
                         _saveChannels();
@@ -266,7 +325,11 @@ class PlayerScreen extends StatefulWidget {
   final String title;
   final String videoUrl;
 
-  const PlayerScreen({super.key, required this.title, required this.videoUrl});
+  const PlayerScreen({
+    super.key,
+    required this.title,
+    required this.videoUrl,
+  });
 
   @override
   State<PlayerScreen> createState() => _PlayerScreenState();
@@ -284,7 +347,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   Future<void> _initPlayer() async {
-    final controller = VideoPlayerController.networkUrl(Uri.parse(widget.videoUrl));
+    final controller = VideoPlayerController.networkUrl(
+      Uri.parse(widget.videoUrl),
+    );
     _videoPlayerController = controller;
 
     try {
@@ -294,13 +359,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _chewieController = ChewieController(
         videoPlayerController: controller,
         autoPlay: true,
+        looping: false,
         allowFullScreen: true,
         fullScreenByDefault: true,
       );
 
       setState(() {});
     } catch (_) {
-      if (mounted) setState(() => _error = 'Falha ao iniciar o vídeo.');
+      if (mounted) {
+        setState(() => _error = 'Falha ao iniciar o vídeo.');
+      }
     }
   }
 
@@ -313,25 +381,38 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final chewieController = _chewieController;
+
     if (_error != null) {
       return Scaffold(
         backgroundColor: Colors.black,
         appBar: AppBar(title: Text(widget.title)),
-        body: Center(child: Text(_error!)),
+        body: Center(
+          child: Text(
+            _error!,
+            style: const TextStyle(color: Colors.white),
+          ),
+        ),
       );
     }
 
-    if (_chewieController == null) {
-      return const Scaffold(
+    if (chewieController == null ||
+        !chewieController.videoPlayerController.value.isInitialized) {
+      return Scaffold(
         backgroundColor: Colors.black,
-        body: Center(child: CircularProgressIndicator(color: Color(0xFFE50914))),
+        appBar: AppBar(title: Text(widget.title)),
+        body: const Center(
+          child: CircularProgressIndicator(color: Color(0xFFE50914)),
+        ),
       );
     }
 
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(title: Text(widget.title)),
-      body: Center(child: Chewie(controller: _chewieController!)),
+      body: Center(
+        child: Chewie(controller: chewieController),
+      ),
     );
   }
 }
